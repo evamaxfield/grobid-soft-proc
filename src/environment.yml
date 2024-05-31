@@ -1,0 +1,7 @@
+name: soft-proc
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip:
+    - -r requirements.txt
