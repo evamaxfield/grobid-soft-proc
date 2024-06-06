@@ -219,7 +219,7 @@ def process(
     temp_working_dir: Path = typer.Argument(
         TEMP_DIR, help="Path to the temporary working directory."
     ),
-    use_dask: bool = typer.Option(False, help="Use Dask for parallel processing."),
+    parallel: bool = typer.Option(True, help="Use Dask for parallel processing."),
     config_path: Path = typer.Argument(
         DEFAULT_CONFIG_PATH, help="Path to the config file."
     ),
@@ -260,10 +260,11 @@ def process(
     ]
 
     # If using dask, use DaskTaskRunner
-    if use_dask:
+    if parallel:
         task_runner = DaskTaskRunner(
             cluster_class="distributed.LocalCluster",
             cluster_kwargs={
+                "n_workers": 4,
                 "threads_per_worker": 1,
                 "processes": False,
             },
