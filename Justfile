@@ -2,6 +2,15 @@
 default:
   just --list
 
+# install deps for development
+install:
+    pip install -r {{justfile_directory()}}/src/requirements.txt
+    pip install -r {{justfile_directory()}}/requirements-dev.txt
+
+# lint, format, and check all files
+lint:
+	pre-commit run --all-files
+
 ###############################################################################
 # Infra
 
@@ -77,7 +86,7 @@ gcp-vm-create gpu="false" project=default_project:
         --shielded-integrity-monitoring \
         --labels=goog-ec-src=vm_add-gcloud \
         --reservation-affinity=any
-    sleep 10
+    sleep 15
     echo "grobid-soft-proc-{{vm_uuid}}" >> .gcp-vm-id
 
 # check for .gcp-vm-id file
@@ -93,7 +102,7 @@ gcp-vm-stop:
 gcp-vm-start:
     just gcp-vm-check-exists
     gcp_vm_id=$(cat .gcp-vm-id) && gcloud compute instances start $gcp_vm_id
-    sleep 10
+    sleep 15
 
 # delete the gcp vm
 gcp-vm-delete:
@@ -158,7 +167,7 @@ docker-pull:
 docker-start gpu="false":
     {{ if path_exists(".docker-container-id") == "true" { `echo "you can safely ignore the error" && docker_container_id=$(cat .docker-container-id) && sudo docker start $docker_container_id && exit` } else { "" } }}
     {{ if gpu == "true" { `sudo docker run --gpus all -d --ulimit core=0 -p 8060:8060 grobid/software-mentions:0.8.0 >> .docker-container-id` } else { `sudo docker run -d --ulimit core=0 -p 8060:8060 grobid/software-mentions:0.8.0 >> .docker-container-id` } }}
-    sleep 5
+    sleep 10
     curl http://localhost:8060/service/isalive
     curl --form input=@./data/dummy/soft-search.pdf --form disambiguate=1 http://localhost:8060/service/annotateSoftwarePDF &
 

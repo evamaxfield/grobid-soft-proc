@@ -1,6 +1,6 @@
 {
     "software_mention_url": "http://localhost:8060",
-    "data_path": "./data/",
+    "data_path": "./data/dummy/",
     "batch_size": 50,
     "sleep_time": 1,
     "concurrency": 4,
