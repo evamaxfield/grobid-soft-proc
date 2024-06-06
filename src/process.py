@@ -24,27 +24,29 @@ DEFAULT_CONFIG_PATH = Path("software-mentions.config.json")
 
 ###############################################################################
 
+
 @dataclass
 class ErrorResult:
     doi: str
     step: str
     error: str
 
+
 @dataclass
 class PDFURLResult:
     doi: str
     pdf_url: str
 
+
 @task
-def _get_pdf_url_for_doi(
-    doi: str
-) -> PDFURLResult | ErrorResult:
+def _get_pdf_url_for_doi(doi: str) -> PDFURLResult | ErrorResult:
     try:
         # TODO: Implement this function
-        pass
+        return PDFURLResult(doi=doi, pdf_url="")
 
     except Exception as e:
         return ErrorResult(doi=doi, step="get-pdf-url-for-doi", error=str(e))
+
 
 @dataclass
 class PDFDownloadResult:
@@ -52,19 +54,23 @@ class PDFDownloadResult:
     pdf_url: str
     pdf_path: str
 
+
 @task
-def _download_pdf(
-    data: PDFURLResult | ErrorResult
-) -> PDFDownloadResult | ErrorResult:
+def _download_pdf(data: PDFURLResult | ErrorResult) -> PDFDownloadResult | ErrorResult:
     if isinstance(data, ErrorResult):
         return data
 
     try:
         # TODO: Implement this function
-        pass
+        return PDFDownloadResult(
+            doi=data.doi,
+            pdf_url=data.pdf_url,
+            pdf_path="",
+        )
 
     except Exception as e:
         return ErrorResult(doi=data.doi, step="download-pdf", error=str(e))
+
 
 @dataclass
 class PDFAnnotationResult:
@@ -73,11 +79,15 @@ class PDFAnnotationResult:
     pdf_path: str
     annotation_storage_path: str
 
+
 @task
 def _annotate_pdf(
     data: PDFDownloadResult | ErrorResult,
     config_path: Path = DEFAULT_CONFIG_PATH,
 ) -> PDFAnnotationResult | ErrorResult:
+    if isinstance(data, ErrorResult):
+        return data
+
     try:
         # Init client
         client = software_mentions_client(config_path=config_path)
@@ -87,8 +97,8 @@ def _annotate_pdf(
 
         # Annotate PDF
         client.annotate(
-            data.pdf_path,
-            tmp_output_path,
+            file_in=data.pdf_path,
+            file_out=tmp_output_path,
         )
 
         # TODO: copy to GCP storage
@@ -103,26 +113,31 @@ def _annotate_pdf(
 
     except Exception as e:
         return ErrorResult(doi=data.doi, step="annotate-pdf", error=str(e))
-    
+
     finally:
         # Clean up the temporary output path
         if tmp_output_path.exists():
             tmp_output_path.unlink()
-    
 
-def _store_batch_results(results: list[PDFAnnotationResult | ErrorResult], batch_id: int) -> None:
+
+def _store_batch_results(
+    results: list[PDFAnnotationResult | ErrorResult], batch_id: int
+) -> None:
     # Separate the results into successful and failed
-    successful_results = pd.DataFrame([r for r in results if not isinstance(r, ErrorResult)])
+    successful_results = pd.DataFrame(
+        [r for r in results if not isinstance(r, ErrorResult)]
+    )
     failed_results = pd.DataFrame([r for r in results if isinstance(r, ErrorResult)])
 
     # Store the results
     successful_results.to_csv(f"successful-results-{batch_id}.csv", index=False)
     failed_results.to_csv(f"failed_results.csv-{batch_id}", index=False)
 
+
 def _download_annotate_for_software_from_doi_pipeline(
     pdf_download_results: list[PDFDownloadResult],
     config_path: Path,
-) -> str:
+) -> None:
     # Read config and get batch size
     with open(config_path, "r") as f:
         config = json.load(f)
@@ -146,7 +161,10 @@ def _download_annotate_for_software_from_doi_pipeline(
             )
 
             # Store batch results
-            _store_batch_results(pdf_annotation_results)
+            _store_batch_results(
+                results=pdf_annotation_results,
+                batch_id=i,
+            )
 
         except Exception as e:
             print(f"Error processing batch {i}: {e}")
@@ -158,7 +176,9 @@ def _download_annotate_for_software_from_doi_pipeline(
 @app.command()
 def process(
     csv_path: Path = typer.Argument(..., help="Path to the CSV file"),
-    config_path: Path = typer.Argument(DEFAULT_CONFIG_PATH, help="Path to the config file"),
+    config_path: Path = typer.Argument(
+        DEFAULT_CONFIG_PATH, help="Path to the config file"
+    ),
     use_dask: bool = typer.Option(False, help="Use Dask for parallel processing"),
 ):
     # TODO: check that the data file has a unique name compared to existing in storage
@@ -182,9 +202,10 @@ def process(
     pdf_url_results = [
         PDFDownloadResult(
             doi=row["doi"],
-            pdf_url=None,
+            pdf_url="",
             pdf_path=row["pdf_path"],
-        ) for _, row in df.iterrows()
+        )
+        for _, row in df.iterrows()
     ]
 
     # If using dask, use DaskTaskRunner
@@ -220,6 +241,7 @@ def process(
 
     # Log time taken
     print(f"Total Processing Duration: {end_dt - start_dt}")
+
 
 ###############################################################################
 
