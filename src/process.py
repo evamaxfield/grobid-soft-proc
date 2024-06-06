@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from pathlib import Path
+from hashlib import sha256
 import json
 import math
 from datetime import datetime
@@ -21,6 +22,8 @@ app = typer.Typer()
 ###############################################################################
 
 DEFAULT_CONFIG_PATH = Path("software-mentions.config.json")
+TEMP_DIR = Path("grobid-annotations-temp-dir/")
+RESULTS_DIR = Path("grobid-annotations-results-dir/")
 
 ###############################################################################
 
@@ -28,6 +31,7 @@ DEFAULT_CONFIG_PATH = Path("software-mentions.config.json")
 @dataclass
 class ErrorResult:
     doi: str
+    doi_hash: str
     step: str
     error: str
 
@@ -35,6 +39,7 @@ class ErrorResult:
 @dataclass
 class PDFURLResult:
     doi: str
+    doi_hash: str
     pdf_url: str
 
 
@@ -42,17 +47,23 @@ class PDFURLResult:
 def _get_pdf_url_for_doi(doi: str) -> PDFURLResult | ErrorResult:
     try:
         # TODO: Implement this function
-        return PDFURLResult(doi=doi, pdf_url="")
+        return PDFURLResult(doi=doi, doi_hash="", pdf_url="")
 
     except Exception as e:
-        return ErrorResult(doi=doi, step="get-pdf-url-for-doi", error=str(e))
+        return ErrorResult(
+            doi=doi,
+            doi_hash="",
+            step="get-pdf-url-for-doi",
+            error=str(e),
+        )
 
 
 @dataclass
 class PDFDownloadResult:
     doi: str
+    doi_hash: str
     pdf_url: str
-    pdf_path: str
+    pdf_local_path: str
 
 
 @task
@@ -64,26 +75,33 @@ def _download_pdf(data: PDFURLResult | ErrorResult) -> PDFDownloadResult | Error
         # TODO: Implement this function
         return PDFDownloadResult(
             doi=data.doi,
+            doi_hash=data.doi_hash,
             pdf_url=data.pdf_url,
-            pdf_path="",
+            pdf_local_path="",
         )
 
     except Exception as e:
-        return ErrorResult(doi=data.doi, step="download-pdf", error=str(e))
+        return ErrorResult(
+            doi=data.doi,
+            doi_hash="",
+            step="download-pdf",
+            error=str(e),
+        )
 
 
 @dataclass
 class PDFAnnotationResult:
     doi: str
+    doi_hash: str
     pdf_url: str
-    pdf_path: str
     annotation_storage_path: str
 
 
 @task
 def _annotate_pdf(
     data: PDFDownloadResult | ErrorResult,
-    config_path: Path = DEFAULT_CONFIG_PATH,
+    temp_working_dir: Path,
+    config_path: Path,
 ) -> PDFAnnotationResult | ErrorResult:
     if isinstance(data, ErrorResult):
         return data
@@ -93,12 +111,13 @@ def _annotate_pdf(
         client = software_mentions_client(config_path=config_path)
 
         # Create temporary output path for this PDF
-        tmp_output_path = Path(f"{data.doi}.json")
+        tmp_output_path = temp_working_dir / f"{data.doi_hash}.json"
 
         # Annotate PDF
         client.annotate(
-            file_in=data.pdf_path,
+            file_in=data.pdf_local_path,
             file_out=tmp_output_path,
+            full_record=None,
         )
 
         # TODO: copy to GCP storage
@@ -106,13 +125,18 @@ def _annotate_pdf(
         # Store the path to the annotation
         return PDFAnnotationResult(
             doi=data.doi,
+            doi_hash=data.doi_hash,
             pdf_url=data.pdf_url,
-            pdf_path=data.pdf_path,
             annotation_storage_path=str(tmp_output_path),
         )
 
     except Exception as e:
-        return ErrorResult(doi=data.doi, step="annotate-pdf", error=str(e))
+        return ErrorResult(
+            doi=data.doi,
+            doi_hash=data.doi_hash,
+            step="annotate-pdf",
+            error=str(e),
+        )
 
     finally:
         # Clean up the temporary output path
@@ -121,7 +145,9 @@ def _annotate_pdf(
 
 
 def _store_batch_results(
-    results: list[PDFAnnotationResult | ErrorResult], batch_id: int
+    results: list[PDFAnnotationResult | ErrorResult],
+    batch_id: int,
+    results_dir: Path,
 ) -> None:
     # Separate the results into successful and failed
     successful_results = pd.DataFrame(
@@ -130,12 +156,16 @@ def _store_batch_results(
     failed_results = pd.DataFrame([r for r in results if isinstance(r, ErrorResult)])
 
     # Store the results
-    successful_results.to_csv(f"successful-results-{batch_id}.csv", index=False)
-    failed_results.to_csv(f"failed_results.csv-{batch_id}", index=False)
+    successful_results.to_csv(
+        results_dir / f"successful-results-{batch_id}.csv", index=False
+    )
+    failed_results.to_csv(results_dir / f"failed-results-{batch_id}.csv", index=False)
 
 
 def _download_annotate_for_software_from_doi_pipeline(
     pdf_download_results: list[PDFDownloadResult],
+    results_dir: Path,
+    temp_working_dir: Path,
     config_path: Path,
 ) -> None:
     # Read config and get batch size
@@ -156,14 +186,16 @@ def _download_annotate_for_software_from_doi_pipeline(
         try:
             # Annotate PDFs
             pdf_annotation_results = _annotate_pdf.map(
-                chunk,
-                unmapped(config_path=config_path),
+                data=chunk,
+                temp_working_dir=unmapped(temp_working_dir),
+                config_path=unmapped(config_path),
             )
 
             # Store batch results
             _store_batch_results(
-                results=pdf_annotation_results,
+                results=[f.result() for f in pdf_annotation_results],
                 batch_id=i,
+                results_dir=results_dir,
             )
 
         except Exception as e:
@@ -175,13 +207,31 @@ def _download_annotate_for_software_from_doi_pipeline(
 
 @app.command()
 def process(
-    csv_path: Path = typer.Argument(..., help="Path to the CSV file"),
-    config_path: Path = typer.Argument(
-        DEFAULT_CONFIG_PATH, help="Path to the config file"
+    csv_path: Path = typer.Argument(..., help="Path to the CSV file for processing."),
+    results_dir: Path = typer.Argument(
+        RESULTS_DIR,
+        help=(
+            "Path to the directory to store results. "
+            "We will always create a subdirectory from this parent "
+            "with the same name as the input CSV file."
+        ),
     ),
-    use_dask: bool = typer.Option(False, help="Use Dask for parallel processing"),
+    temp_working_dir: Path = typer.Argument(
+        TEMP_DIR, help="Path to the temporary working directory."
+    ),
+    use_dask: bool = typer.Option(False, help="Use Dask for parallel processing."),
+    config_path: Path = typer.Argument(
+        DEFAULT_CONFIG_PATH, help="Path to the config file."
+    ),
 ):
     # TODO: check that the data file has a unique name compared to existing in storage
+
+    # Make temp storage directory
+    temp_working_dir.mkdir(exist_ok=True)
+
+    # Make results storage directory
+    this_run_results_dir = results_dir / csv_path.stem
+    this_run_results_dir.mkdir(exist_ok=True, parents=True)
 
     # Init client
     print("Initializing Software Annotation Client...")
@@ -202,8 +252,9 @@ def process(
     pdf_url_results = [
         PDFDownloadResult(
             doi=row["doi"],
+            doi_hash=sha256(row["doi"].encode()).hexdigest(),
             pdf_url="",
-            pdf_path=row["pdf_path"],
+            pdf_local_path=str(Path(row["pdf_path"]).resolve(strict=True).absolute()),
         )
         for _, row in df.iterrows()
     ]
@@ -212,7 +263,10 @@ def process(
     if use_dask:
         task_runner = DaskTaskRunner(
             cluster_class="distributed.LocalCluster",
-            cluster_kwargs={"n_workers": 5, "threads_per_worker": 1},
+            cluster_kwargs={
+                "threads_per_worker": 1,
+                "processes": False,
+            },
         )
     else:
         task_runner = SequentialTaskRunner()
@@ -232,6 +286,8 @@ def process(
     # Start the flow
     pipeline(
         pdf_download_results=pdf_url_results,
+        results_dir=this_run_results_dir,
+        temp_working_dir=temp_working_dir,
         config_path=config_path,
     )
 

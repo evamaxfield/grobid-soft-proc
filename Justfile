@@ -113,7 +113,7 @@ gcp-vm-delete:
 # copy data directory to VM
 gcp-vm-copy-data:
     just gcp-vm-check-exists
-    gcp_vm_id=$(cat .gcp-vm-id) && gcloud compute scp --recurse ./data $gcp_vm_id:~/data
+    gcp_vm_id=$(cat .gcp-vm-id) && gcloud compute scp --recurse ./data/ $gcp_vm_id:~/
 
 # copy src, config, and scripts to VM
 gcp-vm-copy-src:
