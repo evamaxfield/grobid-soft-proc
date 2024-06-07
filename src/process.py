@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import pyalex
-import msgspec
 from datetime import date
 import backoff
 import time
@@ -18,6 +17,7 @@ import requests
 from datetime import datetime
 from dataclasses import dataclass
 
+from dataclasses_json import DataClassJsonMixin
 from software_mentions_client.client import software_mentions_client
 import typer
 import pandas as pd
@@ -34,41 +34,38 @@ app = typer.Typer()
 # APIs
 
 
-class OpenAlexAPICallStatus(msgspec.Struct):
+@dataclass
+class OpenAlexAPICallStatus(DataClassJsonMixin):
     call_count: int
-    current_date: date
+    current_date: str
 
 
 OPEN_ALEX_API_CALL_STATUS_FILEPATH = (
-    Path("~/.open_alex_api_call_status.msgpack").expanduser().resolve()
+    Path("~/.open_alex_api_call_status.json").expanduser().resolve()
 )
 
 
 @backoff.on_exception(backoff.expo, Exception, max_time=5)
 def _write_open_alex_api_call_status(current_status: OpenAlexAPICallStatus) -> None:
     """Write the API call status to disk."""
-    OPEN_ALEX_MSGSPEC_ENCODER = msgspec.msgpack.Encoder()
-
     # Make dirs if needed
     OPEN_ALEX_API_CALL_STATUS_FILEPATH.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(OPEN_ALEX_API_CALL_STATUS_FILEPATH, "wb") as f:
-        f.write(OPEN_ALEX_MSGSPEC_ENCODER.encode(current_status))
+    with open(OPEN_ALEX_API_CALL_STATUS_FILEPATH, "w") as f:
+        json.dump(current_status.to_dict(), f)
 
 
 @backoff.on_exception(backoff.expo, Exception, max_time=5)
 def _read_open_alex_api_call_status() -> OpenAlexAPICallStatus:
     """Read the API call status from disk."""
-    OPEN_ALEX_MSGSPEC_DECODER = msgspec.msgpack.Decoder(type=OpenAlexAPICallStatus)
-
-    with open(OPEN_ALEX_API_CALL_STATUS_FILEPATH, "rb") as f:
-        current_status = OPEN_ALEX_MSGSPEC_DECODER.decode(f.read())
+    with open(OPEN_ALEX_API_CALL_STATUS_FILEPATH, "r") as f:
+        current_status = OpenAlexAPICallStatus.from_dict(json.load(f))
 
     # Check if current API status is out of date
-    if current_status.current_date != date.today():
+    if current_status.current_date != date.today().isoformat():
         current_status = OpenAlexAPICallStatus(
             call_count=0,
-            current_date=date.today(),
+            current_date=date.today().isoformat(),
         )
         _write_open_alex_api_call_status(current_status=current_status)
 
@@ -83,7 +80,7 @@ def _create_open_alex_api_call_status_file() -> None:
         _write_open_alex_api_call_status(
             OpenAlexAPICallStatus(
                 call_count=0,
-                current_date=date.today(),
+                current_date=date.today().isoformat(),
             )
         )
 
@@ -124,7 +121,7 @@ def _increment_open_alex_call_count_and_check() -> None:
         # Reset the call count
         current_status = OpenAlexAPICallStatus(
             call_count=0,
-            current_date=date.today(),
+            current_date=date.today().isoformat(),
         )
 
     # Increment count
@@ -343,7 +340,7 @@ class PDFAnnotationResult:
     annotation_storage_path: str
 
 
-@task(timeout_seconds=120, retries=3, retry_delay_seconds=60)
+@task(timeout_seconds=60, retries=3, retry_delay_seconds=5)
 def _annotate_pdf(
     data: PDFDownloadResult | ErrorResult,
     temp_working_dir: Path,
@@ -385,15 +382,6 @@ def _annotate_pdf(
             error=str(e),
         )
 
-    finally:
-        # Clean up the temporary output JSON
-        if tmp_output_path.exists():
-            tmp_output_path.unlink()
-
-        # Clean up the temporary PDF
-        if Path(data.pdf_local_path).exists():
-            Path(data.pdf_local_path).unlink()
-
 
 def _store_batch_results(
     results: list[PDFAnnotationResult | ErrorResult],
@@ -411,6 +399,16 @@ def _store_batch_results(
         results_dir / f"successful-results-{batch_id}.csv", index=False
     )
     failed_results.to_csv(results_dir / f"failed-results-{batch_id}.csv", index=False)
+
+    # remove tmp files
+    # finally:
+    #     # Clean up the temporary output JSON
+    #     if tmp_output_path.exists():
+    #         tmp_output_path.unlink()
+
+    #     # Clean up the temporary PDF
+    #     if Path(data.pdf_local_path).exists():
+    #         Path(data.pdf_local_path).unlink()
 
 
 def _download_annotate_for_software_from_doi_pipeline(
