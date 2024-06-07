@@ -2,43 +2,58 @@
 
 This repository contains the scripts for deploying and managing a
 processing pipeline which takes a list of article DOIs,
-attempts to download the PDF of each article, extracts all software mentions
-using [GROBID](https://github.com/softcite/software-mentions) and then
-classify each mention using it's context as a either "created", "used", "mentioned"
-or "other."
+attempts to download the PDF of each article, and extracts all software mentions
+using [GROBID](https://github.com/softcite/software-mentions).
 
 **The pipeline is set up to run on a GCP VM (or a local Linux machine).**
 
-## GCP Setup
+## Project Setup
 
 1. Clone this repository: `git clone https://github.com/evamaxfield/grobid-soft-proc.git`
-2. Install gcloud CLI: [https://cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install)
-3. Install just: [https://just.systems/man/en/chapter_4.html](https://just.systems/man/en/chapter_4.html)
-4. Login to gcloud: `just gcp-login`
-5. **Optional:** Create a new GCP project:
-    1. Edit the [Justfile](Justfile) and change the `default_project` variable to an entirely new GCP project name.
-    2. Run `just gcp-project-create`
-6. Enable VM and Compute Services: `just gcp-services-enable`
+2. Create a `.env` file with "OPENALEX_EMAIL" and "S2_API_KEY" environment variables.
+    1. `OPENALEX_EMAIL` is a .edu email address which allows for more API requests to the OpenAlex API.
+    2. `S2_API_KEY` is the API key for the Semantic Scholar API.
+    3. This file will be copied over to the GCP VM and used by the processing scripts but is by default ignored by git.
+3. Install gcloud CLI: [https://cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install)
+4. Install just: [https://just.systems/man/en/chapter_4.html](https://just.systems/man/en/chapter_4.html)
+5. Login to gcloud: `just gcp-login`
+6. **Optional:** Create a new GCP project:
+    1. Edit the [Justfile](Justfile) and change the `default_project` variable to the GCP project name you want to use.
+    2. If creating a new project, run: `just gcp-project-create`
+7. Enable VM, Compute, and Storage Services: `just gcp-services-enable`
 
-## VM Management
+## Create and Setup the VM
 
-Note: this repository is currently setup to only allow a single VM to exist (started or stopped) at a time.
-
-### Create and Setup
+Note: this repository is currently setup to only allow a single VM to exist (start or stopped) at a time.
 
 1. Create a new VM: `just gcp-vm-create` (with GPU: `just gcp-vm-create --gpu=true`)
-2. Copy over the necessary files: `just gcp-vm-copy-all`
-2. SSH into the VM: `just gcp-vm-connect`
-3. While in an SSH session, run the very basic setup script: `. setup.sh`
-4. While in an SSH session and after step three, install heavier dependencies and larger setup: `just gcp-vm-setup` (with GPU: `just gcp-vm-setup --gpu=true`)
+2. Copy over the necessary files: `just gcp-vm-copy-files`
+3. SSH into the VM: `just gcp-vm-connect`
+4. While in an SSH session, run the very basic setup script: `. setup.sh`
+5. While in an SSH session and after step four, install heavier dependencies and larger setup: `just gcp-vm-setup` (with GPU: `just gcp-vm-setup --gpu=true`)
 
-### All VM Commands
+## Process Articles
+
+1. While in an SSH session to the VM, activate the created micromamba environment: `micromamba activate soft-proc`
+2. Run the processing script: `python process.py --csv-path data/example-dois.csv`
+
+This will try and find open access PDFs for each DOI, download those PDFs to the VM, extract software mentions using GROBID, and push all of the results (successful and unsuccessful) to a Google Cloud Storage bucket.
+
+To copy a new CSV file to the VM, add it to your `data/` directory and run `just gcp-vm-copy-files`, it will be copied over for use in the processing script.
+
+## Stopping and Restarting the VM (and Docker)
+
+1. Stop the VM: `just gcp-vm-stop`
+2. Start the VM: `just gcp-vm-start`
+3. Start the Docker container: `just docker-start`
+
+## All Commands
+
+### VM Commands
 
 ```
 gcp-vm-connect           # connect to existing gcp vm
-gcp-vm-copy-all          # copy all (data and src)
-gcp-vm-copy-data         # copy data directory to VM
-gcp-vm-copy-src          # copy src, config, and scripts to VM
+gcp-vm-copy-files        # copy src, config, data, and scripts to VM
 gcp-vm-create gpu="false" project=default_project # create new gcp vm
 gcp-vm-delete            # delete the gcp vm
 gcp-vm-setup gpu="false" # setup the newly created vm and start the grobid docker container
@@ -48,16 +63,18 @@ gcp-vm-stop              # stop the gcp vm
 
 All Just commands must be done from outside the VM and disconnected from an SSH session.
 
-## Docker Management
+## Docker Commands
 
 **Whether within GCP VM or locally on a Linux machine**, you can use the following commands to
 manage the GROBID Docker container used for processing.
 
 ```
+docker-check-services    # hidden command to sleep and check services
 docker-delete            # delete the docker container
+docker-init gpu="false"  # create and start the docker container
 docker-logs              # get the command to run to watch the logs of the running container
 docker-pull              # pull the docker image
-docker-start gpu="false" # create and start the docker container
+docker-start             # start the stopped docker container
 docker-stop              # stop the docker container
 ```
 

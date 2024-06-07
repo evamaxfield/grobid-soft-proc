@@ -110,20 +110,14 @@ gcp-vm-delete:
     gcp_vm_id=$(cat .gcp-vm-id) && gcloud compute instances delete $gcp_vm_id
     rm .gcp-vm-id
 
-# copy data directory to VM
-gcp-vm-copy-data:
+# copy src, config, data, and scripts to VM
+gcp-vm-copy-files:
     just gcp-vm-check-exists
-    gcp_vm_id=$(cat .gcp-vm-id) && gcloud compute scp --recurse ./data/ $gcp_vm_id:~/
-
-# copy src, config, and scripts to VM
-gcp-vm-copy-src:
-    just gcp-vm-check-exists
-    gcp_vm_id=$(cat .gcp-vm-id) && gcloud compute scp --recurse ./src/* $gcp_vm_id:~/ && gcloud compute scp Justfile $gcp_vm_id:~/
-
-# copy all (data and src)
-gcp-vm-copy-all:
-    just gcp-vm-copy-data
-    just gcp-vm-copy-src
+    gcp_vm_id=$(cat .gcp-vm-id) \
+        && gcloud compute scp --recurse ./src/* $gcp_vm_id:~/ \
+        && gcloud compute scp Justfile $gcp_vm_id:~/ \
+        && gcloud compute scp .env $gcp_vm_id:~/ \
+        && gcloud compute scp --recurse ./data/ $gcp_vm_id:~/
 
 # connect to existing gcp vm
 gcp-vm-connect:
@@ -154,7 +148,7 @@ gcp-vm-setup gpu="false":
     
     # init docker grobid image
     just docker-pull
-    just docker-start --gpu={{gpu}}
+    just docker-init --gpu={{gpu}}
 
 ###############################################################################
 # Docker management
@@ -163,17 +157,29 @@ gcp-vm-setup gpu="false":
 docker-pull:
     sudo docker pull grobid/software-mentions:0.8.0
 
-# create and start the docker container
-docker-start gpu="false":
-    {{ if path_exists(".docker-container-id") == "true" { `echo "you can safely ignore the error" && docker_container_id=$(cat .docker-container-id) && sudo docker start $docker_container_id && exit` } else { "" } }}
-    {{ if gpu == "true" { `sudo docker run --gpus all -d --ulimit core=0 -p 8060:8060 grobid/software-mentions:0.8.0 >> .docker-container-id` } else { `sudo docker run -d --ulimit core=0 -p 8060:8060 grobid/software-mentions:0.8.0 >> .docker-container-id` } }}
-    sleep 10
-    curl http://localhost:8060/service/isalive
-    curl --form input=@./data/dummy/soft-search.pdf --form disambiguate=1 http://localhost:8060/service/annotateSoftwarePDF &
-
 # check for .docker-container-id file
 docker-check-exists:
     {{ if path_exists(".docker-container-id") != "true" { error("there may not be an existing docker container") } else { "" } }}
+
+# hidden command to sleep and check services
+docker-check-services:
+    curl http://localhost:8060/service/isalive
+    @ echo "Processing example PDF to ensure GROBID service is warm. Process won't release until response."
+    curl --form input=@./example.pdf --form disambiguate=1 http://localhost:8060/service/annotateSoftwarePDF
+
+# create and start the docker container
+docker-init gpu="false":
+    {{ if path_exists(".docker-container-id") == "true" { error("there may already be an existing docker container") } else { "" } }}
+    {{ if gpu == "true" { `sudo docker run --gpus all -d --ulimit core=0 -p 8060:8060 grobid/software-mentions:0.8.0 >> .docker-container-id` } else { `sudo docker run -d --ulimit core=0 -p 8060:8060 grobid/software-mentions:0.8.0 >> .docker-container-id` } }}
+    sleep 10
+    just docker-check-services
+
+# start the stopped docker container
+docker-start:
+    just docker-check-exists
+    docker_container_id=$(cat .docker-container-id) && sudo docker start $docker_container_id
+    sleep 10
+    just docker-check-services
 
 # stop the docker container
 docker-stop:

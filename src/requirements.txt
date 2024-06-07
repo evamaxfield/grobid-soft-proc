@@ -1,7 +1,13 @@
-software_mentions_client>=0.1.9,<0.2
-typer>=0.12,<0.13
-tqdm>=4,<5
+ipython
+backoff>=2.2,<3
+msgspec>=0.18,<0.19
 pandas>=2,<3
 prefect>=2,<3
 prefect-dask>=0.2,<0.3
-ipython
+pyalex>=0.14,<0.15
+python-dotenv==1.0.1
+requests>=2,<3
+semanticscholar>=0.8,<0.9
+software_mentions_client>=0.1.9,<0.2
+typer>=0.12,<0.13
+tqdm>=4,<5
