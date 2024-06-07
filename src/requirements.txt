@@ -1,6 +1,7 @@
 ipython
 backoff>=2.2,<3
 dataclasses-json>=0.6,<0.7
+gcsfs==2024.6.0
 pandas>=2,<3
 prefect>=2,<3
 prefect-dask>=0.2,<0.3

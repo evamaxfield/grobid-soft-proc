@@ -17,10 +17,10 @@ using [GROBID](https://github.com/softcite/software-mentions).
 3. Install gcloud CLI: [https://cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install)
 4. Install just: [https://just.systems/man/en/chapter_4.html](https://just.systems/man/en/chapter_4.html)
 5. Login to gcloud: `just gcp-login`
-6. **Optional:** Create a new GCP project:
-    1. Edit the [Justfile](Justfile) and change the `default_project` variable to the GCP project name you want to use.
-    2. If creating a new project, run: `just gcp-project-create`
-7. Enable VM, Compute, and Storage Services: `just gcp-services-enable`
+6. Edit the [Justfile](Justfile) and change the `default_project` and `default_storage_bucket_name` variables to the names you would like to use. You can use existing projects and buckets but it is recommended to create new ones.
+    1. Additionally, update the `GCP_STORAGE_BUCKET` variable in the `src/process.py` file to match the bucket name you would like to use.
+7. **Optional:** If creating a new project, run: `just gcp-project-create`
+8. Enable VM, Compute, and Storage Services: `just gcp-services-enable`
 
 ## Create and Setup the VM
 
@@ -40,6 +40,49 @@ Note: this repository is currently setup to only allow a single VM to exist (sta
 This will try and find open access PDFs for each DOI, download those PDFs to the VM, extract software mentions using GROBID, and push all of the results (successful and unsuccessful) to a Google Cloud Storage bucket.
 
 To copy a new CSV file to the VM, add it to your `data/` directory and run `just gcp-vm-copy-files`, it will be copied over for use in the processing script.
+
+The results of the processing will be stored in the Google Cloud Storage bucket you specified in the `Justfile` and `src/process.py` file. The bucket structure will have the following structure:
+
+```
+.
+├── a-different-csv-file-name  # the name of the CSV file used for processing
+│   ├── annotations
+│   │   ├── aaabbbccc.json  # a SHA256 hash of the article DOI
+│   │   ├── dddeeefff.json
+│   │   └── ggghhhiii.json
+│   ├── failed-results
+│   │   └── batch-0.csv
+│   └── successful-results
+│       └── batch-0.csv
+└── csv-file-name
+    ├── annotations
+    │   ├── jjjkkklll.json
+    │   ├── mmmnnnooo.json
+    │   └── pppqqqrrr.json
+    ├── failed-results
+    │   └── batch-0.csv
+    └── successful-results
+        └── batch-0.csv
+```
+
+The `successful-results` directory will contain CSV files with the following columns:
+
+- doi
+- doi_hash
+- pdf_url
+- api_source
+- annotation_gcp_path
+
+Potentially most importantly, the `annotation_gcp_path` column will contain the full GCP path to the JSON file containing the software mentions for that article.
+
+The `failed-results` directory will contain CSV files with the following columns:
+
+- doi
+- doi_hash
+- step
+- error
+
+Possible error values can include simple filtering tasks such as not finding an open access PDF to download or a Python error that occurred during one of the processing steps.
 
 ## Stopping and Restarting the VM (and Docker)
 

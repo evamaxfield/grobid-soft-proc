@@ -18,6 +18,7 @@ from datetime import datetime
 from dataclasses import dataclass
 
 from dataclasses_json import DataClassJsonMixin
+from gcsfs import GCSFileSystem
 from software_mentions_client.client import software_mentions_client
 import typer
 import pandas as pd
@@ -25,6 +26,10 @@ from prefect import Flow, unmapped, task
 from prefect.task_runners import SequentialTaskRunner
 from prefect_dask.task_runners import DaskTaskRunner
 from tqdm import tqdm
+
+###############################################################################
+
+GCP_STORAGE_BUCKET = "grobid-soft-proc-results"
 
 ###############################################################################
 
@@ -337,10 +342,11 @@ class PDFAnnotationResult:
     doi_hash: str
     pdf_url: str
     api_source: str
-    annotation_storage_path: str
+    pdf_local_path: str
+    annotation_local_path: str
 
 
-@task(timeout_seconds=60, retries=3, retry_delay_seconds=5)
+@task(timeout_seconds=180, retries=3, retry_delay_seconds=5)
 def _annotate_pdf(
     data: PDFDownloadResult | ErrorResult,
     temp_working_dir: Path,
@@ -363,15 +369,14 @@ def _annotate_pdf(
             full_record=None,
         )
 
-        # TODO: copy to GCP storage
-
         # Store the path to the annotation
         return PDFAnnotationResult(
             doi=data.doi,
             doi_hash=data.doi_hash,
             pdf_url=data.pdf_url,
             api_source=data.api_source,
-            annotation_storage_path=str(tmp_output_path),
+            pdf_local_path=data.pdf_local_path,
+            annotation_local_path=str(tmp_output_path),
         )
 
     except Exception as e:
@@ -383,37 +388,74 @@ def _annotate_pdf(
         )
 
 
+@dataclass
+class BatchStoreResults:
+    doi: str
+    doi_hash: str
+    pdf_url: str
+    api_source: str
+    annotation_gcp_path: str
+
+
+@task
 def _store_batch_results(
     results: list[PDFAnnotationResult | ErrorResult],
     batch_id: int,
-    results_dir: Path,
+    results_storage_dir_name: str,
 ) -> None:
-    # Separate the results into successful and failed
-    successful_results = pd.DataFrame(
-        [r for r in results if not isinstance(r, ErrorResult)]
-    )
-    failed_results = pd.DataFrame([r for r in results if isinstance(r, ErrorResult)])
+    # Init GCSFS
+    fs = GCSFileSystem()
+
+    # Create prepended storage dir
+    storage_dir = f"{GCP_STORAGE_BUCKET}/{results_storage_dir_name}"
+
+    # Copy JSONs to GCP storage
+    successful_results = []
+    failed_results = []
+    for result in results:
+        if isinstance(result, PDFAnnotationResult):
+            # Create the storage path
+            gcs_storage_path = f"{storage_dir}/annotations/{result.doi_hash}.json"
+
+            # Copy the file to GCP storage
+            fs.put(result.annotation_local_path, gcs_storage_path)
+
+            # Store the results
+            successful_results.append(
+                BatchStoreResults(
+                    doi=result.doi,
+                    doi_hash=result.doi_hash,
+                    pdf_url=result.pdf_url,
+                    api_source=result.api_source,
+                    annotation_gcp_path=gcs_storage_path,
+                )
+            )
+
+            # Remove the temp JSON and PDF files
+            Path(result.pdf_local_path).unlink()
+            Path(result.annotation_local_path).unlink()
+
+        else:
+            failed_results.append(result)
 
     # Store the results
-    successful_results.to_csv(
-        results_dir / f"successful-results-{batch_id}.csv", index=False
+    successful_results_df = pd.DataFrame(successful_results)
+    failed_results_df = pd.DataFrame(failed_results)
+
+    # Write the results to CSV
+    successful_results_df.to_csv(
+        f"gs://{storage_dir}/successful-results/batch-{batch_id}.csv",
+        index=False,
     )
-    failed_results.to_csv(results_dir / f"failed-results-{batch_id}.csv", index=False)
-
-    # remove tmp files
-    # finally:
-    #     # Clean up the temporary output JSON
-    #     if tmp_output_path.exists():
-    #         tmp_output_path.unlink()
-
-    #     # Clean up the temporary PDF
-    #     if Path(data.pdf_local_path).exists():
-    #         Path(data.pdf_local_path).unlink()
+    failed_results_df.to_csv(
+        f"gs://{storage_dir}/failed-results/batch-{batch_id}.csv",
+        index=False,
+    )
 
 
 def _download_annotate_for_software_from_doi_pipeline(
     doi_df: pd.DataFrame,
-    results_dir: Path,
+    gcp_results_storage_dir_name: str,
     temp_working_dir: Path,
     config_path: Path,
 ) -> None:
@@ -454,11 +496,15 @@ def _download_annotate_for_software_from_doi_pipeline(
             _store_batch_results(
                 results=[f.result() for f in pdf_annotation_results],
                 batch_id=i,
-                results_dir=results_dir,
+                results_storage_dir_name=gcp_results_storage_dir_name,
             )
 
         except Exception as e:
             print(f"Error processing batch {i}: {e}")
+
+        # Remove temp working dir
+        finally:
+            shutil.rmtree(temp_working_dir)
 
 
 ###############################################################################
@@ -467,14 +513,6 @@ def _download_annotate_for_software_from_doi_pipeline(
 @app.command()
 def process(
     csv_path: Path = typer.Argument(..., help="Path to the CSV file for processing."),
-    results_dir: Path = typer.Argument(
-        RESULTS_DIR,
-        help=(
-            "Path to the directory to store results. "
-            "We will always create a subdirectory from this parent "
-            "with the same name as the input CSV file."
-        ),
-    ),
     temp_working_dir: Path = typer.Argument(
         TEMP_DIR, help="Path to the temporary working directory."
     ),
@@ -482,8 +520,10 @@ def process(
     config_path: Path = typer.Argument(
         DEFAULT_CONFIG_PATH, help="Path to the config file."
     ),
+    force: bool = typer.Option(
+        False, help="Force overwrite (or add to) existing results."
+    ),
 ):
-    # TODO: check that the data file has a unique name compared to existing in storage
     # Load dotenv and check for OPENALEX_EMAIL and S2_API_KEY
     load_dotenv()
     if "OPENALEX_EMAIL" not in os.environ or "S2_API_KEY" not in os.environ:
@@ -496,8 +536,16 @@ def process(
     temp_working_dir.mkdir(exist_ok=True)
 
     # Make results storage directory
-    this_run_results_dir = results_dir / csv_path.stem
-    this_run_results_dir.mkdir(exist_ok=True, parents=True)
+    this_results_storage_dir_name = csv_path.stem
+
+    # Check that the data file has a unique name compared to existing in storage
+    # Init GCSFS
+    fs = GCSFileSystem()
+    if fs.exists(f"{GCP_STORAGE_BUCKET}/{this_results_storage_dir_name}") and not force:
+        raise ValueError(
+            "Results storage directory already exists and --force option not set. "
+            "Please choose a unique name for your data file."
+        )
 
     # Init client
     print("Initializing Software Annotation Client...")
@@ -552,7 +600,7 @@ def process(
     # Start the flow
     pipeline(
         doi_df=doi_df,
-        results_dir=this_run_results_dir,
+        gcp_results_storage_dir_name=this_results_storage_dir_name,
         temp_working_dir=temp_working_dir,
         config_path=config_path,
     )

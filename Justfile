@@ -20,6 +20,7 @@ default_key := justfile_directory() + "/.keys/dev.json"
 
 # Edit this for changing the project name
 default_project := "sci-software-graph"
+default_storage_bucket_name := "grobid-soft-proc-results"
 
 # run gcloud login
 gcp-login:
@@ -59,12 +60,14 @@ gcp-project-switch project=default_project:
 	gcloud config set project {{project}}
 
 # enable gcloud services
-gcp-services-enable project=default_project:
+gcp-services-enable bucket_name=default_storage_bucket_name:
     gcloud services enable cloudresourcemanager.googleapis.com
     gcloud services enable \
+        storage.googleapis.com \
         compute.googleapis.com \
         logging.googleapis.com \
-        monitoring.googleapis.com \
+        monitoring.googleapis.com
+    -gcloud storage buckets create gs://{{bucket_name}} --location=us-central1
 
 vm_uuid := replace_regex(uuid(), "([a-z0-9]{8})(.*)", "$1")
 
@@ -78,7 +81,7 @@ gcp-vm-create gpu="false" project=default_project:
         --network-interface=network-tier=PREMIUM,stack-type=IPV4_ONLY,subnet=default \
         --maintenance-policy=TERMINATE \
         --provisioning-model=STANDARD \
-        --scopes=https://www.googleapis.com/auth/devstorage.read_only,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/trace.append \
+        --scopes=https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/trace.append,https://www.googleapis.com/auth/devstorage.read_write \
         {{ if gpu == "true" { "--accelerator=count=1,type=nvidia-tesla-t4" } else { "" } }} \
         --create-disk=auto-delete=yes,boot=yes,device-name=grobid-soft-proc-{{vm_uuid}},image=projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20240523a,mode=rw,size=128,type=projects/{{project}}/zones/us-west1-b/diskTypes/pd-balanced \
         --no-shielded-secure-boot \
@@ -171,14 +174,16 @@ docker-check-services:
 docker-init gpu="false":
     {{ if path_exists(".docker-container-id") == "true" { error("there may already be an existing docker container") } else { "" } }}
     {{ if gpu == "true" { `sudo docker run --gpus all -d --ulimit core=0 -p 8060:8060 grobid/software-mentions:0.8.0 >> .docker-container-id` } else { `sudo docker run -d --ulimit core=0 -p 8060:8060 grobid/software-mentions:0.8.0 >> .docker-container-id` } }}
-    sleep 10
+    @ echo "Sleeping for 10 minutes while GROBID service sets up."
+    sleep 600
     just docker-check-services
 
 # start the stopped docker container
 docker-start:
     just docker-check-exists
     docker_container_id=$(cat .docker-container-id) && sudo docker start $docker_container_id
-    sleep 10
+    @ echo "Sleeping for 10 minutes while GROBID service sets up."
+    sleep 600
     just docker-check-services
 
 # stop the docker container
