@@ -3,7 +3,9 @@
 This repository contains the scripts for deploying and managing a
 processing pipeline which takes a list of article DOIs,
 attempts to download the PDF of each article, and extracts all software mentions
-using [GROBID](https://github.com/softcite/software-mentions).
+using [GROBID](https://github.com/softcite/software-mentions) and finally,
+while GROBID provides it's own prediction as to the intent of the mention, 
+we also predict the intent of the mention based off of the CZI Soft Intent model.
 
 **The pipeline is set up to run on a GCP VM (or a local Linux machine).**
 
@@ -46,23 +48,15 @@ The results of the processing will be stored in the Google Cloud Storage bucket 
 ```
 .
 ├── a-different-csv-file-name  # the name of the CSV file used for processing
-│   ├── annotations
-│   │   ├── aaabbbccc.json  # a SHA256 hash of the article DOI
-│   │   ├── dddeeefff.json
-│   │   └── ggghhhiii.json
 │   ├── failed-results
-│   │   └── batch-0.csv
+│   │   └── batch-0.parquet
 │   └── successful-results
-│       └── batch-0.csv
+│       └── batch-0.parquet
 └── csv-file-name
-    ├── annotations
-    │   ├── jjjkkklll.json
-    │   ├── mmmnnnooo.json
-    │   └── pppqqqrrr.json
     ├── failed-results
-    │   └── batch-0.csv
+    │   └── batch-0.parquet
     └── successful-results
-        └── batch-0.csv
+        └── batch-0.parquet
 ```
 
 The `successful-results` directory will contain CSV files with the following columns:
@@ -71,9 +65,17 @@ The `successful-results` directory will contain CSV files with the following col
 - doi_hash
 - pdf_url
 - api_source
-- annotation_gcp_path
-
-Potentially most importantly, the `annotation_gcp_path` column will contain the full GCP path to the JSON file containing the software mentions for that article.
+- context
+- mention_type
+- software_type
+- software_name_raw
+- software_name_normalized
+- software_name_offset_start
+- software_name_offset_end
+- grobid_intent_cls
+- grobid_intent_score
+- czi_soft_cite_intent_cls
+- czi_soft_cite_intent_score
 
 The `failed-results` directory will contain CSV files with the following columns:
 

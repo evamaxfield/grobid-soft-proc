@@ -25,6 +25,7 @@ import pandas as pd
 from prefect import Flow, unmapped, task
 from prefect.task_runners import SequentialTaskRunner
 from prefect_dask.task_runners import DaskTaskRunner
+from transformers import pipeline
 from tqdm import tqdm
 
 ###############################################################################
@@ -244,7 +245,7 @@ RESULTS_DIR = Path("grobid-annotations-results-dir/")
 
 
 @dataclass
-class ErrorResult:
+class ErrorResult(DataClassJsonMixin):
     doi: str
     doi_hash: str
     step: str
@@ -337,13 +338,20 @@ def _download_pdf(
 
 
 @dataclass
-class PDFAnnotationResult:
+class SoftwareMentionResult:
     doi: str
     doi_hash: str
     pdf_url: str
     api_source: str
-    pdf_local_path: str
-    annotation_local_path: str
+    context: str
+    mention_type: str
+    software_type: str
+    software_name_raw: str
+    software_name_normalized: str
+    software_name_offset_start: int
+    software_name_offset_end: int
+    grobid_intent_cls: str
+    grobid_intent_score: float
 
 
 @task(timeout_seconds=180, retries=3, retry_delay_seconds=5)
@@ -351,16 +359,16 @@ def _annotate_pdf(
     data: PDFDownloadResult | ErrorResult,
     temp_working_dir: Path,
     config_path: Path,
-) -> PDFAnnotationResult | ErrorResult:
+) -> list[SoftwareMentionResult] | ErrorResult:
     if isinstance(data, ErrorResult):
         return data
+
+    # Create temporary output path for this JSON
+    tmp_output_path = temp_working_dir / f"{data.doi_hash}.json"
 
     try:
         # Init client
         client = software_mentions_client(config_path=config_path)
-
-        # Create temporary output path for this JSON
-        tmp_output_path = temp_working_dir / f"{data.doi_hash}.json"
 
         # Annotate PDF
         client.annotate(
@@ -369,15 +377,45 @@ def _annotate_pdf(
             full_record=None,
         )
 
-        # Store the path to the annotation
-        return PDFAnnotationResult(
-            doi=data.doi,
-            doi_hash=data.doi_hash,
-            pdf_url=data.pdf_url,
-            api_source=data.api_source,
-            pdf_local_path=data.pdf_local_path,
-            annotation_local_path=str(tmp_output_path),
-        )
+        # Read the JSON
+        with open(tmp_output_path, "r") as f:
+            annotations = json.load(f)
+
+        # Parse the annotations
+        results = []
+        for mention in annotations["mentions"]:
+            # Find cls with max value
+            grobid_intent_details = mention["mentionContextAttributes"]
+            best_cls = "other"
+            best_score = 0.0
+            for intent_cls in ["used", "created", "shared"]:
+                if (
+                    grobid_intent_details[intent_cls]["value"]
+                    and grobid_intent_details[intent_cls]["score"] > best_score
+                ):
+                    best_cls = intent_cls
+                    best_score = grobid_intent_details[intent_cls]
+
+            # Add to results
+            results.append(
+                SoftwareMentionResult(
+                    doi=data.doi,
+                    doi_hash=data.doi_hash,
+                    pdf_url=data.pdf_url,
+                    api_source=data.api_source,
+                    context=mention["context"],
+                    mention_type=mention["type"],
+                    software_type=mention["software-type"],
+                    software_name_raw=mention["software-name"]["rawForm"],
+                    software_name_normalized=mention["software-name"]["normalizedForm"],
+                    software_name_offset_start=mention["software-name"]["offsetStart"],
+                    software_name_offset_end=mention["software-name"]["offsetEnd"],
+                    grobid_intent_cls=best_cls,
+                    grobid_intent_score=best_score,
+                )
+            )
+
+        return results
 
     except Exception as e:
         return ErrorResult(
@@ -387,68 +425,118 @@ def _annotate_pdf(
             error=str(e),
         )
 
+    finally:
+        # Remove the temp files
+        tmp_output_path.unlink()
+        Path(data.pdf_local_path).unlink()
+
+
+@task
+def _flatten_annotation_results(
+    data: list[list[SoftwareMentionResult] | ErrorResult],
+) -> list[SoftwareMentionResult | ErrorResult]:
+    flat_results: list[SoftwareMentionResult | ErrorResult] = []
+    for result in data:
+        if isinstance(result, ErrorResult):
+            flat_results.append(result)
+
+        else:
+            flat_results.extend(result)
+
+    return flat_results
+
 
 @dataclass
-class BatchStoreResults:
+class SoftCiteIntentResult(DataClassJsonMixin):
     doi: str
     doi_hash: str
     pdf_url: str
     api_source: str
-    annotation_gcp_path: str
+    context: str
+    mention_type: str
+    software_type: str
+    software_name_raw: str
+    software_name_normalized: str
+    software_name_offset_start: int
+    software_name_offset_end: int
+    grobid_intent_cls: str
+    grobid_intent_score: float
+    czi_soft_cite_intent_cls: str
+    czi_soft_cite_intent_score: float
+
+
+@task
+def _classify_annotation_with_soft_cite(
+    data: SoftwareMentionResult | ErrorResult,
+) -> SoftCiteIntentResult | ErrorResult:
+    if isinstance(data, ErrorResult):
+        return data
+
+    try:
+        # Init pipeline
+        model = pipeline(
+            task="text-classification",
+            model="evamxb/soft-cite-intent-cls",
+            tokenizer="evamxb/soft-cite-intent-cls",
+            padding=True,
+            truncation=True,
+            max_length=128,
+        )
+
+        # Classify
+        result = model(data.context)
+
+        return SoftCiteIntentResult(
+            doi=data.doi,
+            doi_hash=data.doi_hash,
+            pdf_url=data.pdf_url,
+            api_source=data.api_source,
+            context=data.context,
+            mention_type=data.mention_type,
+            software_type=data.software_type,
+            software_name_raw=data.software_name_raw,
+            software_name_normalized=data.software_name_normalized,
+            software_name_offset_start=data.software_name_offset_start,
+            software_name_offset_end=data.software_name_offset_end,
+            grobid_intent_cls=data.grobid_intent_cls,
+            grobid_intent_score=data.grobid_intent_score,
+            czi_soft_cite_intent_cls=result[0]["label"],
+            czi_soft_cite_intent_score=result[0]["score"],
+        )
+
+    except Exception as e:
+        return ErrorResult(
+            doi=data.doi,
+            doi_hash=data.doi_hash,
+            step="classify-annotation-with-soft-cite",
+            error=str(e),
+        )
 
 
 @task
 def _store_batch_results(
-    results: list[PDFAnnotationResult | ErrorResult],
+    results: list[SoftCiteIntentResult | ErrorResult],
     batch_id: int,
     results_storage_dir_name: str,
 ) -> None:
-    # Init GCSFS
-    fs = GCSFileSystem()
-
     # Create prepended storage dir
     storage_dir = f"{GCP_STORAGE_BUCKET}/{results_storage_dir_name}"
 
-    # Copy JSONs to GCP storage
-    successful_results = []
-    failed_results = []
-    for result in results:
-        if isinstance(result, PDFAnnotationResult):
-            # Create the storage path
-            gcs_storage_path = f"{storage_dir}/annotations/{result.doi_hash}.json"
-
-            # Copy the file to GCP storage
-            fs.put(result.annotation_local_path, gcs_storage_path)
-
-            # Store the results
-            successful_results.append(
-                BatchStoreResults(
-                    doi=result.doi,
-                    doi_hash=result.doi_hash,
-                    pdf_url=result.pdf_url,
-                    api_source=result.api_source,
-                    annotation_gcp_path=gcs_storage_path,
-                )
-            )
-
-            # Remove the temp JSON and PDF files
-            Path(result.pdf_local_path).unlink()
-            Path(result.annotation_local_path).unlink()
-
-        else:
-            failed_results.append(result)
-
     # Store the results
-    successful_results_df = pd.DataFrame(successful_results)
-    failed_results_df = pd.DataFrame(failed_results)
+    successful_results_df = pd.DataFrame(
+        [r.to_dict() for r in results if not isinstance(r, ErrorResult)]
+    )
+    failed_results_df = pd.DataFrame(
+        [r.to_dict() for r in results if isinstance(r, ErrorResult)]
+    )
 
     # Write the results to CSV
-    successful_results_df.to_csv(
-        f"gs://{storage_dir}/successful-results/batch-{batch_id}.csv",
+    successful_results_df.to_parquet(
+        f"gs://{storage_dir}/successful-results/batch-{batch_id}.parquet",
         index=False,
     )
-    failed_results_df.to_csv(
-        f"gs://{storage_dir}/failed-results/batch-{batch_id}.csv",
+    failed_results_df.to_parquet(
+        f"gs://{storage_dir}/failed-results/batch-{batch_id}.parquet",
         index=False,
     )
 
@@ -492,9 +580,17 @@ def _download_annotate_for_software_from_doi_pipeline(
                 config_path=unmapped(config_path),
             )
 
+            # Flatten results
+            flat_results = _flatten_annotation_results(pdf_annotation_results)
+
+            # Classify with SoftCite
+            soft_cite_results = _classify_annotation_with_soft_cite.map(
+                data=flat_results,
+            )
+
             # Store batch results
             _store_batch_results(
-                results=[f.result() for f in pdf_annotation_results],
+                results=[f.result() for f in soft_cite_results],
                 batch_id=i,
                 results_storage_dir_name=gcp_results_storage_dir_name,
             )
