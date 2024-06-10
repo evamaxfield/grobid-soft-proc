@@ -19,7 +19,6 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split
 from transformers import Pipeline, pipeline
-from sklearn.model_selection import train_test_split
 
 ###############################################################################
 
@@ -39,7 +38,6 @@ FINE_TUNE_COMMAND_DICT = {
     "text_column": "text",
     "target_column": "label",
     "train_split": "train",
-    # "valid_split": "valid",
     "epochs": 3,
     "lr": 5e-5,
     "auto_find_batch_size": True,
@@ -72,6 +70,7 @@ class EvaluationResults(DataClassJsonMixin):
     precision: float
     recall: float
     f1: float
+
 
 def evaluate(
     model: Pipeline,
@@ -139,6 +138,7 @@ def evaluate(
         f1=f1,
     )
 
+
 ###############################################################################
 
 # Load the data
@@ -150,14 +150,20 @@ data = data[["sentence", "used", "mention", "created"]]
 # Rename "mention" to "mentioned" and "sentence" to "text"
 data = data.rename(columns={"mention": "mentioned", "sentence": "text"})
 
-# Create a new column called "other" which is True when "used", "mentioned", and "created" are all False
+# Create a new column called "other" which is True
+# when "used", "mentioned", and "created" are all False
 data["other"] = ~data[["used", "mentioned", "created"]].any(axis=1)
 
 # Melt the data to have the sentence column and then the label column
-data = pd.melt(data, id_vars=["text"], value_vars=["used", "mentioned", "created", "other"], var_name="label")
+data = pd.melt(
+    data,
+    id_vars=["text"],
+    value_vars=["used", "mentioned", "created", "other"],
+    var_name="label",
+)
 
 # Drop rows where the value is False
-data = data[data["value"] == True].copy()
+data = data[data["value"] is True].copy()
 
 # Drop the value column
 data = data.drop(columns=["value"])
@@ -169,8 +175,9 @@ data["text"] = data["text"].str.strip()
 data = data.drop_duplicates()
 
 # Create a train and test split
-train, test = train_test_split(data, test_size=0.1, random_state=42, stratify=data["label"], shuffle=True)
-# test, valid = train_test_split(test_and_valid, test_size=0.25, random_state=42, stratify=test_and_valid["label"], shuffle=True)
+train, test = train_test_split(
+    data, test_size=0.1, random_state=42, stratify=data["label"], shuffle=True
+)
 
 # Print proporation of each label in the train set
 print(train["label"].value_counts(normalize=True))
@@ -213,11 +220,6 @@ train_ds = datasets.Dataset.from_pandas(
     features=features,
     preserve_index=False,
 )
-# valid_ds = datasets.Dataset.from_pandas(
-#     valid,
-#     features=features,
-#     preserve_index=False,
-# )
 test_ds = datasets.Dataset.from_pandas(
     test,
     features=features,
@@ -228,7 +230,6 @@ test_ds = datasets.Dataset.from_pandas(
 ds_dict = datasets.DatasetDict(
     {
         "train": train_ds,
-        # "valid": valid_ds,
         "test": test_ds,
     }
 )

@@ -21,7 +21,6 @@ from sklearn.model_selection import train_test_split
 from tabulate import tabulate
 from tqdm import tqdm
 from transformers import Pipeline, pipeline
-from sklearn.model_selection import train_test_split
 
 # Models used for testing, both fine-tune and semantic logit
 BASE_MODELS = {
@@ -77,6 +76,7 @@ class EvaluationResults(DataClassJsonMixin):
     precision: float
     recall: float
     f1: float
+
 
 def evaluate(
     model: Pipeline,
@@ -145,6 +145,7 @@ def evaluate(
         f1=f1,
     )
 
+
 ###############################################################################
 
 # Load the data
@@ -157,10 +158,15 @@ data = data[["sentence", "used", "mention", "created"]]
 data = data.rename(columns={"mention": "mentioned", "sentence": "text"})
 
 # Melt the data to have the sentence column and then the label column
-data = pd.melt(data, id_vars=["text"], value_vars=["used", "mentioned", "created"], var_name="label")
+data = pd.melt(
+    data,
+    id_vars=["text"],
+    value_vars=["used", "mentioned", "created"],
+    var_name="label",
+)
 
 # Drop rows where the value is False
-data = data[data["value"] == True].copy()
+data = data[data["value"] is True].copy()
 
 # Drop the value column
 data = data.drop(columns=["value"])
@@ -172,8 +178,16 @@ data["text"] = data["text"].str.strip()
 data = data.drop_duplicates()
 
 # Create a train and test split
-train, test_and_valid = train_test_split(data, test_size=0.2, random_state=42, stratify=data["label"], shuffle=True)
-test, valid = train_test_split(test_and_valid, test_size=0.25, random_state=42, stratify=test_and_valid["label"], shuffle=True)
+train, test_and_valid = train_test_split(
+    data, test_size=0.2, random_state=42, stratify=data["label"], shuffle=True
+)
+test, valid = train_test_split(
+    test_and_valid,
+    test_size=0.25,
+    random_state=42,
+    stratify=test_and_valid["label"],
+    shuffle=True,
+)
 
 # Print proporation of each label in the train set
 print(train["label"].value_counts(normalize=True))
@@ -305,9 +319,7 @@ for model_short_name, hf_model_path in tqdm(
 
 # Print results
 results_df = pd.DataFrame(results)
-results_df = results_df.sort_values(by="f1", ascending=False).reset_index(
-    drop=True
-)
+results_df = results_df.sort_values(by="f1", ascending=False).reset_index(drop=True)
 results_df.to_csv("all-model-results.csv", index=False)
 print("Current standings")
 print(
