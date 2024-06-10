@@ -183,8 +183,8 @@ docker-init gpu="false":
 docker-start:
     just docker-check-exists
     docker_container_id=$(cat .docker-container-id) && sudo docker start $docker_container_id
-    @ echo "Sleeping for 10 minutes while GROBID service sets up."
-    sleep 600
+    @ echo "Sleeping for 5 minutes while GROBID service sets up."
+    sleep 300
     just docker-check-services
 
 # stop the docker container

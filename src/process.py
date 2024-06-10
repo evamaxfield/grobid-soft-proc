@@ -394,7 +394,7 @@ def _annotate_pdf(
                     and grobid_intent_details[intent_cls]["score"] > best_score
                 ):
                     best_cls = intent_cls
-                    best_score = grobid_intent_details[intent_cls]
+                    best_score = grobid_intent_details[intent_cls]["score"]
 
             # Add to results
             results.append(
@@ -467,10 +467,13 @@ class SoftCiteIntentResult(DataClassJsonMixin):
 
 @task
 def _classify_annotation_with_soft_cite(
-    data: SoftwareMentionResult | ErrorResult,
-) -> SoftCiteIntentResult | ErrorResult:
-    if isinstance(data, ErrorResult):
-        return data
+    data: list[SoftwareMentionResult | ErrorResult],
+) -> list[SoftCiteIntentResult | ErrorResult]:
+    # Filter out errors
+    errors = [result for result in data if isinstance(result, ErrorResult)]
+    mention_results = [
+        result for result in data if isinstance(result, SoftwareMentionResult)
+    ]
 
     try:
         # Init pipeline
@@ -483,34 +486,46 @@ def _classify_annotation_with_soft_cite(
             max_length=128,
         )
 
-        # Classify
-        result = model(data.context)
-
-        return SoftCiteIntentResult(
-            doi=data.doi,
-            doi_hash=data.doi_hash,
-            pdf_url=data.pdf_url,
-            api_source=data.api_source,
-            context=data.context,
-            mention_type=data.mention_type,
-            software_type=data.software_type,
-            software_name_raw=data.software_name_raw,
-            software_name_normalized=data.software_name_normalized,
-            software_name_offset_start=data.software_name_offset_start,
-            software_name_offset_end=data.software_name_offset_end,
-            grobid_intent_cls=data.grobid_intent_cls,
-            grobid_intent_score=data.grobid_intent_score,
-            czi_soft_cite_intent_cls=result[0]["label"],
-            czi_soft_cite_intent_score=result[0]["score"],
+        # Predict all
+        predictions = model(
+            [mention.context for mention in mention_results],
         )
+
+        # Zip results
+        new_results: list[SoftCiteIntentResult | ErrorResult] = []
+        for mention, prediction in zip(mention_results, predictions, strict=True):
+            new_results.append(
+                SoftCiteIntentResult(
+                    doi=mention.doi,
+                    doi_hash=mention.doi_hash,
+                    pdf_url=mention.pdf_url,
+                    api_source=mention.api_source,
+                    context=mention.context,
+                    mention_type=mention.mention_type,
+                    software_type=mention.software_type,
+                    software_name_raw=mention.software_name_raw,
+                    software_name_normalized=mention.software_name_normalized,
+                    software_name_offset_start=mention.software_name_offset_start,
+                    software_name_offset_end=mention.software_name_offset_end,
+                    grobid_intent_cls=mention.grobid_intent_cls,
+                    grobid_intent_score=mention.grobid_intent_score,
+                    czi_soft_cite_intent_cls=prediction["label"],
+                    czi_soft_cite_intent_score=prediction["score"],
+                )
+            )
+
+        # Extend with errors
+        return new_results + errors
 
     except Exception as e:
-        return ErrorResult(
-            doi=data.doi,
-            doi_hash=data.doi_hash,
-            step="classify-annotation-with-soft-cite",
-            error=str(e),
-        )
+        return errors + [
+            ErrorResult(
+                doi="",
+                doi_hash="",
+                step="classify-annotation-with-soft-cite",
+                error=str(e),
+            )
+        ]
 
 
 @task
@@ -581,16 +596,18 @@ def _download_annotate_for_software_from_doi_pipeline(
             )
 
             # Flatten results
-            flat_results = _flatten_annotation_results(pdf_annotation_results)
+            flat_results = _flatten_annotation_results(
+                [f.result() for f in pdf_annotation_results],
+            )
 
             # Classify with SoftCite
-            soft_cite_results = _classify_annotation_with_soft_cite.map(
+            soft_cite_results = _classify_annotation_with_soft_cite(
                 data=flat_results,
             )
 
             # Store batch results
             _store_batch_results(
-                results=[f.result() for f in soft_cite_results],
+                results=soft_cite_results,
                 batch_id=i,
                 results_storage_dir_name=gcp_results_storage_dir_name,
             )
