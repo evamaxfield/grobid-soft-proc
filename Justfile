@@ -6,6 +6,7 @@ default:
 install:
     pip install -r {{justfile_directory()}}/src/requirements.txt
     pip install -r {{justfile_directory()}}/requirements-dev.txt
+    pip install -r {{justfile_directory()}}/training/requirements-train.txt
 
 # lint, format, and check all files
 lint:

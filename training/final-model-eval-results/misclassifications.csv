@@ -1,0 +1,36 @@
+text,label,predicted
+"Video files (AVI. format, filmed at 30 frames/second, 640 × 480 resolution) were uploaded into the program and analysed for activity, distance and velocity using program settings as outlined in Table 1.",other,mentioned
+"During the development of SNPdetector, we used the mouse resequencing data as the training dataset because heterozygotes in inbred mouse strains are almost always false positive as a result of mouse breeding history.",created,mentioned
+This method performed better on high grades of soil than the low grades for the reason of depth resolution of Kinect.Statistics for evaluating the performance of proposed method at different grades of soil in calibration and validation datasets,other,used
+"All model analyses were performed with the R statistical package, version 3.0.2 [48].",mentioned,used
+"All detected nuclei that did not colocalize with Syp-positive cells were considered as glial nuclei, and a small perimeter (NIS-Elements thickening command, three iterations) around each nucleus was also selected to detect part of the cytoplasm of these cells.",used,other
+"However, it should be noted that glycosylation is not included in ConoMass because of the enormous number of possible structures glycosylation can present.",used,mentioned
+We meta-analysed summary statistics for the 135 variants reaching p<1x10-5 in SCOOP/STILTS/UKHLS with the corresponding results from UKBB and study specific replication cohorts (S5–S7 Tables).,other,used
+"The CAD algorithm was implemented by a technical computing language (MATLAB R2010a, MathWorks Inc., Natick, MA, USA).",created,mentioned
+The CAD system was developed based on mathematical morphology using MathWorks.,created,used
+A very similar approach has recently been used in another Cyberball study [13].,mentioned,used
+"The pre-processing pipeline for T1-weighted images included: re-orientating images to the standard (MNI) template, bias field correction, registration to the MNI template using both linear (FLIRT) and non-linear (FNIRT) registration tools and brain extraction.",used,mentioned
+The study is registered in the ClinicalTrials.gov (identification code: https://clinicaltrials.gov/ct2/show/NCT01479933).,other,used
+Approach to detect related individuals: Our approach is based on the methodology used by GRAB [14] which was designed for unphased and diploid genotype or sequencing data.,mentioned,used
+"The scPipe package is written in R and C++ and uses the Rcpp package [16, 17] to wrap the C++ code into R functions and the Rhtslib package [18] for BAM input/output.",used,mentioned
+"The second data set (#2) is derived from five human tissues (brain, heart, kidney, liver, and lung) from two GEO Series GSE1133 [8] and GSE2361 [9] (see Table 7).",used,other
+"The current plugin named as IHC profiler, integrates options for quantitative analysis of digital IHC images stained for either cytoplasmic or nuclear proteins.",mentioned,created
+"Automated model building procedures (forward, backward or stepwise regression) are not supported by the survey analysis command in Stata 8.0 and are therefore not used in any of the analyses.",mentioned,used
+"To do this, Wham should be run over a BAM file containing SVs that have been validated.",mentioned,used
+COBRAme is written in Python and extends the widely used COBRApy software that only supports M-models [18].,used,created
+"Cancer, Heart And Soft Tissue Environment (Chaste) has been developed to enable the study of novel problems in computational physiology and biology.",created,other
+"Chaste is developed using industrially-derived techniques, in particular test-driven development, to ensure code quality, re-use and reliability.",created,mentioned
+"The CNVs that are unique for cases (not present in any of the in-house controls) and occur at a low frequency, i.e., present in ≤2 independent cases, while having a frequency of ≤1% in the CNVmap, the DGV gold standard dataset [37] and 1000 genomes SV [38] were selected and subjected to further analysis as described below.",used,other
+"Data analysis was performed in R version 3.2.3 (2015-12-10), and a script including all analytical steps is available upon request.",used,mentioned
+"Records of post-vaccination adverse events were queried from the CDC Vaccine Adverse Event Reporting System (VAERS; access date: May 18th, 2011).",other,used
+"Chaste is developed using an ‘agile’ development methodology, using many features of eXtreme Programming (XP) [19].",created,mentioned
+"Written in C++, NFTsim has been tested on a range of Linux distributions (RHEL 6.9, RHEL 7.4, OpenSUSE 13.2, OpenSUSE 42.2).",created,mentioned
+This paper describes the optimization of the IDEAS analysis template for identifying and scoring BNCs and MN in the IS X -based version of the CBMN assay.,mentioned,created
+"To avoid the excessive number of associated genes biasing the MAGMA GSA, we excluded all genes within the MHC region from our GSA of SZ.",used,other
+ii) DQNs are good in Pong and,mentioned,other
+Data sets obtained in this study have been uploaded to GEO under accession ID GSE89392 (link for the reviewers: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?token=yrkpgamgzbcdlaz&acc=GSE89392).,other,used
+"The high resolution scans made available (Harvard Dataverse 10.7910/DVN/29628, [2]) were produced using 3600 radiographs with 1.2 µm effective pixel size.",other,used
+The mass spectrometry proteomics data have been deposited to the ProteomeXchange Consortium [23] via the PRIDE partner repository with the dataset identifier PXD001806.,other,used
+"To address this issue, the design of Mobyle's interface is user-centered, to provide a usable yet customizable access to a large panel of services, from genome analysis to structural bioinformatics.",mentioned,created
+"Regression in SPSS version 24 is ruled out as it is limited to step-wise methods only, cannot conduct an all-possible subset analysis (used here for exploratory reasons), does not automatically identify and handle outliers, and cannot accommodate a model with a high variable to observation ratio [82].",mentioned,used
+"The data underlying this article are available in [NCBI viral genome database], at https://www.ncbi.nlm.nih.gov/labs/virus/vssi/#/, and [CNCB coronavirus database, at https://bigd.big.ac.cn/ncov/.",used,mentioned
