@@ -138,3 +138,5 @@ final-model/
 
 # Notebooks
 nsf-soft-search-pub-dois/
+nsf-soft-search-2022.parquet
+grant-publications.parquet
