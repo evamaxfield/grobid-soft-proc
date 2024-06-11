@@ -618,10 +618,6 @@ def _download_annotate_for_software_from_doi_pipeline(
         except Exception as e:
             print(f"Error processing batch {i}: {e}")
 
-        # Remove temp working dir
-        finally:
-            shutil.rmtree(temp_working_dir)
-
 
 ###############################################################################
 
