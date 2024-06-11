@@ -135,3 +135,6 @@ model-eval-results/
 autotrain-text-classification-temp/
 all-model-results.csv
 final-model/
+
+# Notebooks
+nsf-soft-search-pub-dois/

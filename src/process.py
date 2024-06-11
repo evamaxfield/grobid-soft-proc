@@ -309,6 +309,9 @@ def _download_pdf(
         return data
 
     try:
+        # Sleep to avoid rate limiting
+        time.sleep(5)
+
         # Create temporary output path for this PDF
         tmp_output_path = temp_working_dir / f"{data.doi_hash}.pdf"
 
