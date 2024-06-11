@@ -427,8 +427,8 @@ def _annotate_pdf(
 
     finally:
         # Remove the temp files
-        tmp_output_path.unlink()
-        Path(data.pdf_local_path).unlink()
+        tmp_output_path.unlink(missing_ok=True)
+        Path(data.pdf_local_path).unlink(missing_ok=True)
 
 
 @task
@@ -567,6 +567,9 @@ def _download_annotate_for_software_from_doi_pipeline(
         config = json.load(f)
         batch_size = config.get("batch_size", 50)
 
+    # Make temp storage directory
+    temp_working_dir.mkdir(exist_ok=True)
+
     # Create chunks of batch_size of the results to process
     n_batches = math.ceil(len(doi_df) / batch_size)
     for i in tqdm(
@@ -608,7 +611,7 @@ def _download_annotate_for_software_from_doi_pipeline(
             # Store batch results
             _store_batch_results(
                 results=soft_cite_results,
-                batch_id=i,
+                batch_id=i // batch_size,
                 results_storage_dir_name=gcp_results_storage_dir_name,
             )
 
@@ -644,9 +647,6 @@ def process(
             "Please set OPENALEX_EMAIL "
             "and S2_API_KEY in your environment or in the .env file."
         )
-
-    # Make temp storage directory
-    temp_working_dir.mkdir(exist_ok=True)
 
     # Make results storage directory
     this_results_storage_dir_name = csv_path.stem
